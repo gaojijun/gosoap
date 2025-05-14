@@ -44,6 +44,7 @@ func (l *fmtLogger) LogResponse(method string, dump []byte) {
 
 // Config config the Client
 type Config struct {
+	NoWsdl bool
 	Dump   bool
 	Logger DumpLogger
 }
@@ -102,6 +103,9 @@ type Client struct {
 
 // Call call's the method m with Params p
 func (c *Client) Call(m string, p SoapParams) (res *Response, err error) {
+	if c.config.NoWsdl {
+		return c.DoWithoutWsdl(NewRequest(m, p))
+	}
 	return c.Do(NewRequest(m, p))
 }
 
@@ -112,6 +116,9 @@ func (c *Client) CallByStruct(s RequestStruct) (res *Response, err error) {
 		return nil, err
 	}
 
+	if c.config.NoWsdl {
+		return c.DoWithoutWsdl(req)
+	}
 	return c.Do(req)
 }
 
@@ -142,6 +149,54 @@ func (c *Client) SetWSDL(wsdl string) {
 	defer c.onDefinitionsRefresh.Done()
 	c.wsdl = wsdl
 	c.initWsdl()
+}
+
+// Do Process Soap Request
+func (c *Client) DoWithoutWsdl(req *Request) (res *Response, err error) {
+	// c.onDefinitionsRefresh.Wait()
+	c.onRequest.Add(1)
+	defer c.onRequest.Done()
+
+	p := &process{
+		Client:  c,
+		Request: req,
+		// SoapAction: c.Definitions.GetSoapActionFromWsdlOperation(req.Method),
+	}
+
+	if p.SoapAction == "" && c.AutoAction {
+		p.SoapAction = fmt.Sprintf("%s/%s/%s", c.URL, c.Definitions.Services[0].Name, req.Method)
+	}
+
+	p.Payload, err = xml.MarshalIndent(p, "", "    ")
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := p.doRequest(c.wsdl)
+	if err != nil {
+		return nil, ErrorWithPayload{err, p.Payload}
+	}
+
+	var soap SoapEnvelope
+	// err = xml.Unmarshal(b, &soap)
+	// error: xml: encoding "ISO-8859-1" declared but Decoder.CharsetReader is nil
+	// https://stackoverflow.com/questions/6002619/unmarshal-an-iso-8859-1-xml-input-in-go
+	// https://github.com/golang/go/issues/8937
+
+	decoder := xml.NewDecoder(bytes.NewReader(b))
+	decoder.CharsetReader = charset.NewReaderLabel
+	err = decoder.Decode(&soap)
+
+	res = &Response{
+		Body:    soap.Body.Contents,
+		Header:  soap.Header.Contents,
+		Payload: p.Payload,
+	}
+	if err != nil {
+		return res, ErrorWithPayload{err, p.Payload}
+	}
+
+	return res, nil
 }
 
 // Do Process Soap Request
