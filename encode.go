@@ -8,12 +8,14 @@ import (
 
 var (
 	soapPrefix                            = "soap"
+	soapMethodPrefix                      = ""
 	customEnvelopeAttrs map[string]string = nil
 )
 
 // SetCustomEnvelope define customizated envelope
-func SetCustomEnvelope(prefix string, attrs map[string]string) {
+func SetCustomEnvelope(prefix string, methodPrefix string, attrs map[string]string) {
 	soapPrefix = prefix
+	soapMethodPrefix = methodPrefix
 	if attrs != nil {
 		customEnvelopeAttrs = attrs
 	}
@@ -219,6 +221,9 @@ func (tokens *tokenData) startBody(m, n string) error {
 	if m == "" {
 		return fmt.Errorf("method is empty")
 	}
+	if soapMethodPrefix != "" {
+		m = fmt.Sprintf("%s:%s", soapMethodPrefix, m)
+	}
 
 	r := xml.StartElement{
 		Name: xml.Name{
@@ -244,6 +249,10 @@ func (tokens *tokenData) endBody(m string) {
 			Space: "",
 			Local: fmt.Sprintf("%s:Body", soapPrefix),
 		},
+	}
+
+	if soapMethodPrefix != "" {
+		m = fmt.Sprintf("%s:%s", soapMethodPrefix, m)
 	}
 
 	r := xml.EndElement{
