@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	soapPrefix = "soap"
+	soapPrefix                            = "soap"
 	customEnvelopeAttrs map[string]string = nil
 )
 
@@ -23,17 +23,24 @@ func SetCustomEnvelope(prefix string, attrs map[string]string) {
 func (c process) MarshalXML(e *xml.Encoder, _ xml.StartElement) error {
 	tokens := &tokenData{}
 
-	//start envelope
+	// start envelope
 	if c.Client.Definitions == nil {
 		return fmt.Errorf("definitions is nil")
 	}
 
 	namespace := ""
+	childrenNamespace := ""
 	if c.Client.Definitions.Types != nil {
 		schema := c.Client.Definitions.Types[0].XsdSchema[0]
 		namespace = schema.TargetNamespace
 		if namespace == "" && len(schema.Imports) > 0 {
 			namespace = schema.Imports[0].Namespace
+		}
+		if schema.ElementFormDefault == "unqualified" {
+			childrenNamespace = ""
+		}
+		if schema.ElementFormDefault == "qualified" {
+			childrenNamespace = namespace
 		}
 	}
 
@@ -44,14 +51,14 @@ func (c process) MarshalXML(e *xml.Encoder, _ xml.StartElement) error {
 		tokens.endHeader(c.Client.HeaderName)
 	}
 
-	err := tokens.startBody(c.Request.Method, namespace)
+	err := tokens.startBody(c.Request.Method, childrenNamespace)
 	if err != nil {
 		return err
 	}
 
 	tokens.recursiveEncode(c.Request.Params)
 
-	//end envelope
+	// end envelope
 	tokens.endBody(c.Request.Method)
 	tokens.endEnvelope()
 
@@ -130,7 +137,7 @@ func (tokens *tokenData) startEnvelope() {
 		e.Attr = make([]xml.Attr, 0)
 		for local, value := range customEnvelopeAttrs {
 			e.Attr = append(e.Attr, xml.Attr{
-				Name: xml.Name{Space: "", Local: local},
+				Name:  xml.Name{Space: "", Local: local},
 				Value: value,
 			})
 		}
@@ -209,8 +216,8 @@ func (tokens *tokenData) startBody(m, n string) error {
 		},
 	}
 
-	if m == "" || n == "" {
-		return fmt.Errorf("method or namespace is empty")
+	if m == "" {
+		return fmt.Errorf("method is empty")
 	}
 
 	r := xml.StartElement{
@@ -218,9 +225,11 @@ func (tokens *tokenData) startBody(m, n string) error {
 			Space: "",
 			Local: m,
 		},
-		Attr: []xml.Attr{
+	}
+	if n != "" {
+		r.Attr = []xml.Attr{
 			{Name: xml.Name{Space: "", Local: "xmlns"}, Value: n},
-		},
+		}
 	}
 
 	tokens.data = append(tokens.data, b, r)
